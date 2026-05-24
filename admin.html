@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Planka Hub · Регистрации</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        color-scheme: light;
+        --blue: #4475f2;
+        --ink: #0b0c10;
+        --muted: #6b7180;
+        --line: #d9dce6;
+        --bg: #f6f8fc;
+        --white: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, Arial, sans-serif;
+      }
+
+      .admin {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 36px 24px 56px;
+      }
+
+      .admin-header {
+        display: flex;
+        margin-bottom: 24px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 28px;
+        line-height: 34px;
+      }
+
+      .admin-header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .admin-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .admin-button {
+        display: inline-flex;
+        height: 38px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--white);
+        color: var(--ink);
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
+        text-align: center;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .admin-button--primary {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: var(--white);
+      }
+
+      .admin-button--danger {
+        border-color: #dc2626;
+        background: #dc2626;
+        color: var(--white);
+      }
+
+      .admin-button:disabled {
+        cursor: default;
+        opacity: 0.45;
+      }
+
+      .stats {
+        display: grid;
+        margin-bottom: 18px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stat {
+        min-height: 86px;
+        padding: 16px;
+        border: 1px solid #e6e9f2;
+        border-radius: 10px;
+        background: var(--white);
+      }
+
+      .stat span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .stat strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 28px;
+        line-height: 32px;
+      }
+
+      .panel {
+        overflow: hidden;
+        border: 1px solid #e6e9f2;
+        border-radius: 12px;
+        background: var(--white);
+      }
+
+      .table-toolbar {
+        display: flex;
+        min-height: 54px;
+        padding: 12px 14px;
+        border-bottom: 1px solid #eef0f5;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .table-toolbar span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        padding: 13px 14px;
+        border-bottom: 1px solid #eef0f5;
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .badge {
+        display: inline-flex;
+        min-width: 78px;
+        height: 25px;
+        padding: 0 9px;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        background: #eef3ff;
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .col-select {
+        width: 48px;
+      }
+
+      .col-id {
+        width: 50px;
+      }
+
+      .col-status {
+        width: 108px;
+      }
+
+      .col-step {
+        width: 64px;
+      }
+
+      .col-date {
+        width: 114px;
+      }
+
+      .col-source {
+        width: 31%;
+      }
+
+      .col-fields {
+        width: 15%;
+      }
+
+      .col-actions {
+        width: 92px;
+      }
+
+      .step-cell {
+        white-space: nowrap;
+      }
+
+      .badge--submitted {
+        background: #e9f8ef;
+        color: #18a957;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .source-list {
+        display: grid;
+        min-width: 170px;
+        margin: 0;
+        gap: 4px;
+      }
+
+      .source-list div {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 6px;
+      }
+
+      .source-list dt {
+        color: var(--muted);
+      }
+
+      .source-list dd {
+        min-width: 0;
+        margin: 0;
+        word-break: break-word;
+      }
+
+      .admin-checkbox {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--blue);
+        cursor: pointer;
+      }
+
+      .row-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .row-delete {
+        height: 30px;
+        padding: 0 10px;
+        border: 1px solid #fee2e2;
+        border-radius: 8px;
+        background: #fff5f5;
+        color: #dc2626;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      details {
+        max-width: 360px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: var(--blue);
+        font-weight: 700;
+      }
+
+      pre {
+        overflow: auto;
+        max-height: 220px;
+        margin: 10px 0 0;
+        padding: 12px;
+        border-radius: 8px;
+        background: #f4f6fb;
+        color: #1a1c24;
+        font: 12px/18px Consolas, "Courier New", monospace;
+        white-space: pre-wrap;
+      }
+
+      .empty,
+      .error {
+        padding: 34px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .error {
+        color: #c2410c;
+      }
+
+      @media (width <= 860px) {
+        .admin-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .panel {
+          overflow-x: auto;
+        }
+
+        table {
+          min-width: 1120px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="admin">
+      <header class="admin-header">
+        <div>
+          <h1>Попытки регистрации</h1>
+          <p>Каждое открытие формы создает отдельную запись. Данные обновляются по мере прохождения шагов.</p>
+        </div>
+        <div class="admin-actions">
+          <a class="admin-button" href="/">На сайт</a>
+          <button class="admin-button admin-button--danger" type="button" data-delete-selected disabled>Удалить выбранные</button>
+          <a class="admin-button" href="/api/admin/registration-attempts/export.xlsx">Экспорт в Excel</a>
+          <button class="admin-button admin-button--primary" type="button" data-refresh>Обновить</button>
+        </div>
+      </header>
+
+      <section class="stats" aria-label="Сводка воронки">
+        <article class="stat"><span>Всего попыток</span><strong data-stat="total">0</strong></article>
+        <article class="stat"><span>UTM-визиты без формы</span><strong data-stat="step0">0</strong></article>
+        <article class="stat"><span>Остановились на 1 шаге</span><strong data-stat="step1">0</strong></article>
+        <article class="stat"><span>Остановились на 2 шаге</span><strong data-stat="step2">0</strong></article>
+        <article class="stat"><span>Остановились на 3 шаге</span><strong data-stat="step3">0</strong></article>
+        <article class="stat"><span>Отправили запрос</span><strong data-stat="submitted">0</strong></article>
+      </section>
+
+      <section class="panel" data-panel>
+        <div class="empty">Загрузка...</div>
+      </section>
+    </main>
+
+    <script>
+      const panel = document.querySelector('[data-panel]');
+      const refreshButton = document.querySelector('[data-refresh]');
+      const deleteSelectedButton = document.querySelector('[data-delete-selected]');
+      const formatter = new Intl.DateTimeFormat('ru-RU', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+      });
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function formatDate(value) {
+        if (!value) {
+          return '—';
+        }
+
+        return formatter.format(new Date(value));
+      }
+
+      function updateStats(stats) {
+        Object.entries(stats).forEach(([key, value]) => {
+          const target = document.querySelector(`[data-stat="${key}"]`);
+
+          if (target) {
+            target.textContent = value;
+          }
+        });
+      }
+
+      function renderSource(attempt) {
+        const rows = Object.entries(attempt.utm || {});
+
+        if (attempt.referrer) {
+          rows.push(['referrer', attempt.referrer]);
+        }
+
+        if (!rows.length) {
+          return '<span class="muted">нет меток</span>';
+        }
+
+        return `
+          <dl class="source-list">
+            ${rows.map(([key, value]) => `
+              <div>
+                <dt>${escapeHtml(key)}</dt>
+                <dd>${escapeHtml(value)}</dd>
+              </div>
+            `).join('')}
+          </dl>
+        `;
+      }
+
+      function formatStep(step) {
+        const value = Number(step);
+        return value > 0 ? `${value} / 3` : '0 / 3';
+      }
+
+      function getSelectedIds() {
+        return Array.from(panel.querySelectorAll('[data-attempt-checkbox]:checked')).map((checkbox) => Number(checkbox.value));
+      }
+
+      function updateSelectionState() {
+        const checkboxes = Array.from(panel.querySelectorAll('[data-attempt-checkbox]'));
+        const selectedIds = getSelectedIds();
+        const selectAll = panel.querySelector('[data-select-all]');
+
+        deleteSelectedButton.disabled = selectedIds.length === 0;
+        deleteSelectedButton.textContent = selectedIds.length ? `Удалить выбранные (${selectedIds.length})` : 'Удалить выбранные';
+
+        if (selectAll instanceof HTMLInputElement) {
+          selectAll.checked = checkboxes.length > 0 && selectedIds.length === checkboxes.length;
+          selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < checkboxes.length;
+        }
+      }
+
+      function renderAttempts(attempts) {
+        if (!attempts.length) {
+          panel.innerHTML = '<div class="empty">Пока нет попыток регистрации.</div>';
+          updateSelectionState();
+          return;
+        }
+
+        panel.innerHTML = `
+          <div class="table-toolbar">
+            <span>Выберите одну или несколько записей для удаления</span>
+            <span>${attempts.length} записей</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th class="col-select"><input class="admin-checkbox" type="checkbox" data-select-all aria-label="Выбрать все записи" /></th>
+                <th class="col-id">ID</th>
+                <th class="col-status">Статус</th>
+                <th class="col-step">Шаг</th>
+                <th class="col-date">Создано</th>
+                <th class="col-date">Обновлено</th>
+                <th class="col-source">Источник</th>
+                <th class="col-fields">Поля</th>
+                <th class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${attempts.map((attempt) => `
+                <tr>
+                  <td class="col-select">
+                    <input class="admin-checkbox" type="checkbox" value="${attempt.id}" data-attempt-checkbox aria-label="Выбрать запись #${attempt.id}" />
+                  </td>
+                  <td class="col-id">#${attempt.id}</td>
+                  <td class="col-status">
+                    <span class="badge ${attempt.status === 'submitted' ? 'badge--submitted' : ''}">
+                      ${attempt.status === 'submitted' ? 'Отправлено' : 'В процессе'}
+                    </span>
+                  </td>
+                  <td class="col-step step-cell"><strong>${formatStep(attempt.currentStep)}</strong></td>
+                  <td class="col-date">${formatDate(attempt.createdAt)}</td>
+                  <td class="col-date">${formatDate(attempt.updatedAt)}</td>
+                  <td class="col-source">${renderSource(attempt)}</td>
+                  <td class="col-fields">
+                    <details>
+                      <summary>Показать поля</summary>
+                      <pre>${escapeHtml(JSON.stringify(attempt.fields, null, 2))}</pre>
+                    </details>
+                    <div class="muted">uuid: ${escapeHtml(attempt.attemptUuid)}</div>
+                  </td>
+                  <td class="col-actions">
+                    <div class="row-actions">
+                      <button class="row-delete" type="button" data-delete-one="${attempt.id}">Удалить</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+
+        updateSelectionState();
+      }
+
+      async function deleteAttempts(ids) {
+        if (!ids.length) {
+          return;
+        }
+
+        const label = ids.length === 1 ? `запись #${ids[0]}` : `${ids.length} записей`;
+
+        if (!confirm(`Удалить ${label}? Это действие нельзя отменить.`)) {
+          return;
+        }
+
+        deleteSelectedButton.disabled = true;
+
+        if (ids.length === 1) {
+          await fetch(`/api/admin/registration-attempts/${ids[0]}`, { method: 'DELETE' });
+        } else {
+          await fetch('/api/admin/registration-attempts', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+          });
+        }
+
+        await loadAttempts();
+      }
+
+      async function loadAttempts() {
+        panel.innerHTML = '<div class="empty">Загрузка...</div>';
+
+        try {
+          const response = await fetch('/api/admin/registration-attempts');
+          const data = await response.json();
+          updateStats(data.stats);
+          renderAttempts(data.attempts);
+        } catch (error) {
+          panel.innerHTML = '<div class="error">Не удалось загрузить попытки. Проверьте, что запущен server.py.</div>';
+        }
+      }
+
+      refreshButton.addEventListener('click', loadAttempts);
+      deleteSelectedButton.addEventListener('click', () => deleteAttempts(getSelectedIds()));
+
+      panel.addEventListener('change', (event) => {
+        const target = event.target;
+
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+
+        if (target.matches('[data-select-all]')) {
+          panel.querySelectorAll('[data-attempt-checkbox]').forEach((checkbox) => {
+            checkbox.checked = target.checked;
+          });
+        }
+
+        updateSelectionState();
+      });
+
+      panel.addEventListener('click', (event) => {
+        const button = event.target instanceof Element ? event.target.closest('[data-delete-one]') : null;
+
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        deleteAttempts([Number(button.dataset.deleteOne)]);
+      });
+
+      loadAttempts();
+    </script>
+  </body>
+</html>

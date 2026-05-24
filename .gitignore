@@ -1,0 +1,26 @@
+# Local runtime data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python/cache artifacts
+__pycache__/
+*.py[cod]
+
+# Logs
+*.log
+
+# Local QA and recovery artifacts
+.playwright-mcp/
+backups/
+qa-desktop/
+recovery-candidates/
+report-section-snapshot.md
+
+# Generated visual check screenshots in the project root
+/*.png
+!/assets/*.png
+
+# Local exports
+registration-attempts-*.xlsx
