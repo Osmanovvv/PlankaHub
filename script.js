@@ -847,6 +847,22 @@ function getQuestLayoutConfig() {
     };
   }
 
+  if (window.matchMedia('(min-width: 721px) and (max-width: 900px)').matches) {
+    return {
+      rows: [[0], [1, 2], [3, 4], [5, 6]],
+      columns: [0, 499],
+      baseHeights: [171.75, 161, 161, 161, 161, 162, 162],
+      featuredOpenHeight: 188,
+      openHeight: 200,
+      afterFeaturedGap: 14,
+      rowGap: 35.25,
+      baseListHeight: 740.25,
+      basePanelHeight: 992,
+      baseSectionHeight: 700,
+      sectionScale: 0.66,
+    };
+  }
+
   return {
     rows: [[0], [1, 2], [3, 4], [5, 6]],
     columns: [0, 499],
@@ -900,9 +916,10 @@ function updateQuestLayout() {
   });
 
   const heightDelta = Math.max(0, listHeight - config.baseListHeight);
+  const sectionDelta = heightDelta * (config.sectionScale || 1);
   questList.style.height = `${listHeight}px`;
   questPanel.style.height = `${config.basePanelHeight + heightDelta}px`;
-  questSection.style.height = `${config.baseSectionHeight + heightDelta}px`;
+  questSection.style.height = `${config.baseSectionHeight + sectionDelta}px`;
 }
 
 function setQuestCardOpen(card, toggle, isOpen) {
