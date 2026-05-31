@@ -1,0 +1,22 @@
+@media (max-width: 1180px) {
+  .direction-description,
+  .direction-tags,
+  .direction-investment-details,
+  .direction-card-note {
+    display: none !important;
+  }
+
+  .reviews-header h2 {
+    position: static !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+  }
+
+  .review-card--one::before {
+    position: static !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+  }
+}

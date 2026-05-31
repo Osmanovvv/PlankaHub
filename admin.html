@@ -313,6 +313,95 @@
         color: #c2410c;
       }
 
+      .behavior {
+        margin-top: 26px;
+      }
+
+      .behavior-header {
+        display: flex;
+        margin-bottom: 14px;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .behavior-header h2 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 28px;
+      }
+
+      .behavior-header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .behavior-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .behavior-panel {
+        overflow: hidden;
+        border: 1px solid #e6e9f2;
+        border-radius: 12px;
+        background: var(--white);
+      }
+
+      .behavior-panel h3 {
+        margin: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid #eef0f5;
+        font-size: 15px;
+      }
+
+      .behavior-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .behavior-table th,
+      .behavior-table td {
+        padding: 11px 12px;
+        font-size: 12px;
+      }
+
+      .behavior-table td {
+        word-break: break-word;
+      }
+
+      .scroll-bars {
+        display: grid;
+        padding: 16px;
+        gap: 10px;
+      }
+
+      .scroll-bar {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) 44px;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .scroll-bar span:nth-child(2) {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #edf1fb;
+      }
+
+      .scroll-bar i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--blue);
+      }
+
       @media (width <= 860px) {
         .admin-header {
           align-items: flex-start;
@@ -321,6 +410,10 @@
 
         .stats {
           grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .behavior-grid {
+          grid-template-columns: 1fr;
         }
 
         .panel {
@@ -360,12 +453,54 @@
       <section class="panel" data-panel>
         <div class="empty">Загрузка...</div>
       </section>
+
+      <section class="behavior" aria-label="Аналитика поведения">
+        <div class="behavior-header">
+          <div>
+            <h2>Аналитика поведения</h2>
+            <p>Клики по ключевым кнопкам и глубина прокрутки по анонимным посетителям.</p>
+          </div>
+          <button class="admin-button" type="button" data-refresh-behavior>Обновить аналитику</button>
+        </div>
+
+        <section class="stats" aria-label="Сводка поведения">
+          <article class="stat"><span>Посетителей</span><strong data-behavior-stat="sessions">0</strong></article>
+          <article class="stat"><span>Кликов</span><strong data-behavior-stat="clicks">0</strong></article>
+          <article class="stat"><span>Средняя прокрутка</span><strong data-behavior-stat="averageScroll">0%</strong></article>
+          <article class="stat"><span>Дошли до 75%</span><strong data-behavior-stat="scroll75">0</strong></article>
+          <article class="stat"><span>Дошли до 90%</span><strong data-behavior-stat="scroll90">0</strong></article>
+        </section>
+
+        <div class="behavior-grid">
+          <section class="behavior-panel" data-clicks-panel>
+            <h3>Куда нажимают</h3>
+            <div class="empty">Загрузка...</div>
+          </section>
+          <section class="behavior-panel" data-scroll-panel>
+            <h3>Карта прокрутки</h3>
+            <div class="empty">Загрузка...</div>
+          </section>
+          <section class="behavior-panel" data-sessions-panel>
+            <h3>Последние посетители</h3>
+            <div class="empty">Загрузка...</div>
+          </section>
+          <section class="behavior-panel" data-events-panel>
+            <h3>Последние события</h3>
+            <div class="empty">Загрузка...</div>
+          </section>
+        </div>
+      </section>
     </main>
 
     <script>
       const panel = document.querySelector('[data-panel]');
       const refreshButton = document.querySelector('[data-refresh]');
       const deleteSelectedButton = document.querySelector('[data-delete-selected]');
+      const refreshBehaviorButton = document.querySelector('[data-refresh-behavior]');
+      const clicksPanel = document.querySelector('[data-clicks-panel]');
+      const scrollPanel = document.querySelector('[data-scroll-panel]');
+      const sessionsPanel = document.querySelector('[data-sessions-panel]');
+      const eventsPanel = document.querySelector('[data-events-panel]');
       const formatter = new Intl.DateTimeFormat('ru-RU', {
         dateStyle: 'short',
         timeStyle: 'medium',
@@ -546,8 +681,150 @@
         }
       }
 
+      function updateBehaviorStats(stats) {
+        const values = {
+          sessions: stats.sessions || 0,
+          clicks: stats.clicks || 0,
+          averageScroll: `${stats.averageScroll || 0}%`,
+          scroll75: stats.scrollBuckets?.['75'] || 0,
+          scroll90: stats.scrollBuckets?.['90'] || 0,
+        };
+
+        Object.entries(values).forEach(([key, value]) => {
+          const target = document.querySelector(`[data-behavior-stat="${key}"]`);
+
+          if (target) {
+            target.textContent = value;
+          }
+        });
+      }
+
+      function renderTopClicks(items) {
+        if (!items.length) {
+          clicksPanel.innerHTML = '<h3>Куда нажимают</h3><div class="empty">Пока нет кликов.</div>';
+          return;
+        }
+
+        clicksPanel.innerHTML = `
+          <h3>Куда нажимают</h3>
+          <table class="behavior-table">
+            <thead>
+              <tr><th>Элемент</th><th>Событие</th><th>Клики</th><th>Последний</th></tr>
+            </thead>
+            <tbody>
+              ${items.map((item) => `
+                <tr>
+                  <td>${escapeHtml(item.label || item.event_name)}</td>
+                  <td class="muted">${escapeHtml(item.event_name)}</td>
+                  <td><strong>${item.count}</strong></td>
+                  <td>${formatDate(item.last_at)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function renderScrollMap(stats) {
+        const buckets = stats.scrollBuckets || {};
+        const total = Math.max(1, Number(stats.sessions || 0));
+        const rows = ['25', '50', '75', '90', '100'];
+
+        scrollPanel.innerHTML = `
+          <h3>Карта прокрутки</h3>
+          <div class="scroll-bars">
+            ${rows.map((key) => {
+              const count = Number(buckets[key] || 0);
+              const percent = Math.round((count / total) * 100);
+
+              return `
+                <div class="scroll-bar">
+                  <span>${key}%</span>
+                  <span><i style="width:${percent}%"></i></span>
+                  <strong>${count}</strong>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }
+
+      function renderSessions(items) {
+        if (!items.length) {
+          sessionsPanel.innerHTML = '<h3>Последние посетители</h3><div class="empty">Пока нет посетителей.</div>';
+          return;
+        }
+
+        sessionsPanel.innerHTML = `
+          <h3>Последние посетители</h3>
+          <table class="behavior-table">
+            <thead>
+              <tr><th>Сессия</th><th>Прокрутка</th><th>Клики</th><th>Последний визит</th></tr>
+            </thead>
+            <tbody>
+              ${items.slice(0, 30).map((item) => `
+                <tr>
+                  <td>
+                    <strong>${escapeHtml(String(item.sessionId).slice(0, 8))}</strong>
+                    <div class="muted">${escapeHtml(item.landingPath || '/')}</div>
+                  </td>
+                  <td>${Math.round(Number(item.maxScrollPercent || 0))}%</td>
+                  <td>${item.clickCount || 0}</td>
+                  <td>${formatDate(item.lastSeenAt)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function renderRecentEvents(items) {
+        if (!items.length) {
+          eventsPanel.innerHTML = '<h3>Последние события</h3><div class="empty">Пока нет событий.</div>';
+          return;
+        }
+
+        eventsPanel.innerHTML = `
+          <h3>Последние события</h3>
+          <table class="behavior-table">
+            <thead>
+              <tr><th>Время</th><th>Тип</th><th>Элемент</th><th>Текст</th></tr>
+            </thead>
+            <tbody>
+              ${items.slice(0, 40).map((item) => `
+                <tr>
+                  <td>${formatDate(item.created_at)}</td>
+                  <td>${escapeHtml(item.event_type)}</td>
+                  <td>${escapeHtml(item.label || item.event_name)}</td>
+                  <td class="muted">${escapeHtml(item.target_text || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+
+      async function loadBehaviorAnalytics() {
+        try {
+          const response = await fetch('/api/admin/behavior-analytics');
+          const data = await response.json();
+          updateBehaviorStats(data.stats || {});
+          renderTopClicks(data.topClicks || []);
+          renderScrollMap(data.stats || {});
+          renderSessions(data.sessions || []);
+          renderRecentEvents(data.recentEvents || []);
+        } catch (error) {
+          [clicksPanel, scrollPanel, sessionsPanel, eventsPanel].forEach((target) => {
+            if (target) {
+              target.innerHTML = '<div class="error">Не удалось загрузить аналитику поведения.</div>';
+            }
+          });
+        }
+      }
+
       refreshButton.addEventListener('click', loadAttempts);
       deleteSelectedButton.addEventListener('click', () => deleteAttempts(getSelectedIds()));
+      refreshBehaviorButton.addEventListener('click', loadBehaviorAnalytics);
 
       panel.addEventListener('change', (event) => {
         const target = event.target;
@@ -576,6 +853,7 @@
       });
 
       loadAttempts();
+      loadBehaviorAnalytics();
     </script>
   </body>
 </html>

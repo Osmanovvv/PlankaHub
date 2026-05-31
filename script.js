@@ -35,7 +35,9 @@ const questToggles = Array.from(document.querySelectorAll('.quest-toggle'));
 const reviewsGrid = document.querySelector('.reviews-grid');
 const reviewCards = Array.from(document.querySelectorAll('.review-card'));
 const reviewArrows = Array.from(document.querySelectorAll('.reviews-arrow'));
+const reviewsDotsContainer = document.querySelector('.reviews-dots');
 const reviewDots = Array.from(document.querySelectorAll('.reviews-dots span'));
+const mobileReviewsQuery = window.matchMedia('(max-width: 720px)');
 let anchorHighlightTimer;
 let activeSignupStep = 1;
 let maxVisitedSignupStep = 0;
@@ -101,6 +103,201 @@ function collectUtmParams() {
 
 const signupUtm = collectUtmParams();
 const hasTrackingParamsInUrl = Object.keys(getUrlTrackingParams()).length > 0;
+
+const ANALYTICS_SESSION_KEY = 'plankaHubBehaviorSessionId';
+const analyticsLandingPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+let maxScrollPercentTracked = 0;
+let maxScrollYTracked = 0;
+let scrollTrackingTicking = false;
+const sentScrollMilestones = new Set();
+const scrollMilestones = [25, 50, 75, 90, 100];
+
+function createAnalyticsSessionId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getAnalyticsSessionId() {
+  try {
+    const stored = localStorage.getItem(ANALYTICS_SESSION_KEY);
+
+    if (stored) {
+      return stored;
+    }
+
+    const sessionId = createAnalyticsSessionId();
+    localStorage.setItem(ANALYTICS_SESSION_KEY, sessionId);
+    return sessionId;
+  } catch (error) {
+    return createAnalyticsSessionId();
+  }
+}
+
+const analyticsSessionId = getAnalyticsSessionId();
+
+function getScrollAnalytics() {
+  const documentHeight = Math.max(
+    document.body.scrollHeight,
+    document.documentElement.scrollHeight,
+    document.body.offsetHeight,
+    document.documentElement.offsetHeight,
+  );
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+  const maxScrollable = Math.max(1, documentHeight - viewportHeight);
+  const scrollY = Math.max(0, window.scrollY || window.pageYOffset || 0);
+  const percent = Math.min(100, Math.round((scrollY / maxScrollable) * 1000) / 10);
+
+  maxScrollPercentTracked = Math.max(maxScrollPercentTracked, percent);
+  maxScrollYTracked = Math.max(maxScrollYTracked, Math.round(scrollY));
+
+  return {
+    y: Math.round(scrollY),
+    maxY: maxScrollYTracked,
+    percent: maxScrollPercentTracked,
+    pageHeight: documentHeight,
+  };
+}
+
+function buildAnalyticsPayload(type, name, details = {}) {
+  return {
+    sessionId: analyticsSessionId,
+    type,
+    name,
+    label: details.label || name,
+    text: details.text || '',
+    href: details.href || '',
+    pagePath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    landingPath: analyticsLandingPath,
+    viewport: {
+      width: window.innerWidth || document.documentElement.clientWidth || 0,
+      height: window.innerHeight || document.documentElement.clientHeight || 0,
+    },
+    scroll: getScrollAnalytics(),
+    utm: signupUtm,
+    metadata: details.metadata || {},
+  };
+}
+
+function sendAnalyticsEvent(type, name, details = {}, useBeacon = false) {
+  const payload = buildAnalyticsPayload(type, name, details);
+  const body = JSON.stringify(payload);
+
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/analytics/events', new Blob([body], { type: 'application/json' }));
+    return;
+  }
+
+  fetch('/api/analytics/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+const analyticsClickTargets = [
+  ['header.burger', '.burger-button', 'Header · burger menu'],
+  ['header.logo', '.brand', 'Header · logo'],
+  ['header.login', '.login-link, .registration-button', 'Header · вход'],
+  ['hero.free', '.hero-cta', 'Hero · Получить бесплатно'],
+  ['founders.join', '.founders-button--dark', 'Секция 2 · Стать участником'],
+  ['bloggers.arrow', '.bloggers-arrow', 'Секция 3 · стрелка блогеров'],
+  ['report.join', '.report-button--primary', 'Секция 5 · Стать участником'],
+  ['pablo.apply', '.pablo-button, .pablo-link--telegram', 'Секция 7 · Подать заявку в Telegram'],
+  ['pablo.site', '.pablo-link--site', 'Секция 7 · Сайт HIT Venture'],
+  ['reviews.arrow', '.reviews-arrow', 'Секция 8 · стрелка отзывов'],
+  ['telegram.subscribe', '.telegram-button', 'Секция 9 · Подписаться на канал'],
+  ['faq.question', '.quest-card', 'Секция 11 · вопрос'],
+  ['footer.anchor', '.site-footer a[href^="#"]', 'Футер · якорная ссылка'],
+];
+
+function resolveAnalyticsClick(target) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  for (const [name, selector, fallbackLabel] of analyticsClickTargets) {
+    const element = target.closest(selector);
+
+    if (!element) {
+      continue;
+    }
+
+    if (name === 'faq.question' && !questList?.contains(element)) {
+      continue;
+    }
+
+    const label = element.getAttribute('aria-label')
+      || element.querySelector('h3, strong, span')?.textContent
+      || element.textContent
+      || fallbackLabel;
+    const href = element instanceof HTMLAnchorElement ? element.href : '';
+    const index = name === 'faq.question'
+      ? Array.from(questList?.querySelectorAll('.quest-card') || []).indexOf(element) + 1
+      : undefined;
+
+    return {
+      name,
+      label: fallbackLabel,
+      text: label.replace(/\s+/g, ' ').trim().slice(0, 240),
+      href,
+      metadata: {
+        index,
+        className: element.className || '',
+      },
+    };
+  }
+
+  return null;
+}
+
+document.addEventListener('click', (event) => {
+  const clickData = resolveAnalyticsClick(event.target);
+
+  if (!clickData) {
+    return;
+  }
+
+  sendAnalyticsEvent('click', clickData.name, clickData);
+}, { capture: true });
+
+function trackScrollDepth() {
+  const scroll = getScrollAnalytics();
+
+  scrollMilestones.forEach((milestone) => {
+    if (scroll.percent < milestone || sentScrollMilestones.has(milestone)) {
+      return;
+    }
+
+    sentScrollMilestones.add(milestone);
+    sendAnalyticsEvent('scroll', `scroll.${milestone}`, {
+      label: `Scroll ${milestone}%`,
+      metadata: { milestone },
+    });
+  });
+}
+
+function requestScrollTracking() {
+  if (scrollTrackingTicking) {
+    return;
+  }
+
+  scrollTrackingTicking = true;
+  requestAnimationFrame(() => {
+    trackScrollDepth();
+    scrollTrackingTicking = false;
+  });
+}
+
+window.addEventListener('scroll', requestScrollTracking, { passive: true });
+window.addEventListener('resize', requestScrollTracking);
+window.addEventListener('beforeunload', () => {
+  sendAnalyticsEvent('scroll', 'scroll.final', { label: 'Final scroll depth' }, true);
+});
+requestScrollTracking();
 
 function getStoredSignupAttemptId() {
   const value = Number(sessionStorage.getItem(UTM_ATTEMPT_STORAGE_KEY));
@@ -834,16 +1031,16 @@ function scrollToAnchor(anchor) {
 function getQuestLayoutConfig() {
   if (window.matchMedia('(max-width: 720px)').matches) {
     return {
-      rows: [[0], [1], [2], [3], [4], [6], [5]],
+      rows: [[0], [1], [2], [3], [4], [5]],
       columns: [0],
-      baseHeights: [85.88, 91.12, 91.12, 81.44, 81.44, 82, 81.44],
-      featuredOpenHeight: 104,
-      openHeight: 112,
-      afterFeaturedGap: 7,
-      rowGap: 7,
-      baseListHeight: 636.44,
-      basePanelHeight: 496,
-      baseSectionHeight: 796,
+      baseHeights: [56, 72, 72, 72, 72, 56],
+      featuredOpenHeight: 155,
+      openHeight: 188,
+      afterFeaturedGap: 10.39,
+      rowGap: 10.39,
+      baseListHeight: 485,
+      basePanelHeight: 548,
+      baseSectionHeight: 608,
     };
   }
 
@@ -923,6 +1120,31 @@ function updateQuestLayout() {
 }
 
 function setQuestCardOpen(card, toggle, isOpen) {
+  const isMobileQuest = window.matchMedia('(max-width: 720px)').matches;
+  const isDesktopQuest = window.matchMedia('(min-width: 1181px)').matches;
+  const isExclusiveQuest = isMobileQuest || isDesktopQuest;
+
+  if (isExclusiveQuest && isOpen) {
+    questToggles.forEach((item) => {
+      const itemCard = item.closest('.quest-card');
+
+      if (!itemCard || itemCard === card) {
+        return;
+      }
+
+      itemCard.classList.remove('is-open');
+      item.setAttribute('aria-expanded', 'false');
+      const itemLabel = item.querySelector('span');
+      if (itemLabel) {
+        itemLabel.textContent = 'Подробно';
+      }
+    });
+  }
+
+  if (isExclusiveQuest && !isOpen) {
+    isOpen = true;
+  }
+
   card.classList.toggle('is-open', isOpen);
   toggle.setAttribute('aria-expanded', String(isOpen));
 
@@ -935,7 +1157,8 @@ function setQuestCardOpen(card, toggle, isOpen) {
 }
 
 questToggles.forEach((toggle) => {
-  toggle.addEventListener('click', () => {
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
     const card = toggle.closest('.quest-card');
 
     if (!card) {
@@ -947,10 +1170,57 @@ questToggles.forEach((toggle) => {
   });
 });
 
+questList?.addEventListener('click', (event) => {
+  if (!window.matchMedia('(max-width: 720px)').matches && !window.matchMedia('(min-width: 1181px)').matches) {
+    return;
+  }
+
+  const card = event.target.closest('.quest-card');
+
+  if (!card || !questList.contains(card) || Array.from(questList.querySelectorAll('.quest-card')).indexOf(card) > 4) {
+    return;
+  }
+
+  const toggle = card.querySelector('.quest-toggle');
+
+  if (!toggle) {
+    return;
+  }
+
+  setQuestCardOpen(card, toggle, true);
+});
+
+function syncMobileQuestState() {
+  const isExclusiveQuest = window.matchMedia('(max-width: 720px)').matches || window.matchMedia('(min-width: 1181px)').matches;
+
+  if (!isExclusiveQuest || !questList) {
+    updateQuestLayout();
+    return;
+  }
+
+  const cards = Array.from(questList.querySelectorAll('.quest-card')).slice(0, 5);
+  const openCard = cards.find((card) => card.classList.contains('is-open')) || cards[0];
+
+  cards.forEach((card) => {
+    const toggle = card.querySelector('.quest-toggle');
+    const isOpen = card === openCard;
+    card.classList.toggle('is-open', isOpen);
+    toggle?.setAttribute('aria-expanded', String(isOpen));
+    const label = toggle?.querySelector('span');
+    if (label) {
+      label.textContent = isOpen ? 'Свернуть' : 'Подробно';
+    }
+  });
+
+  updateQuestLayout();
+}
+
 window.addEventListener('resize', updateQuestLayout);
+window.addEventListener('resize', syncMobileQuestState);
+syncMobileQuestState();
 
 registrationButton?.addEventListener('click', () => {
-  openSignupFlow();
+  setLoginMode(true);
 });
 
 signupRoot?.addEventListener('click', (event) => {
@@ -1005,6 +1275,18 @@ signupRoot?.addEventListener('change', () => {
 
 signupRoot?.querySelector('form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
+
+  if (!isSignupStepComplete(3)) {
+    const nextField = !isValidSignupEmail()
+      ? getSignupField('email')
+      : !getSignupFieldValue('contact')
+        ? getSignupField('contact')
+        : getSignupField('privacy');
+
+    nextField?.focus({ preventScroll: true });
+    return;
+  }
+
   clearTimeout(signupSaveTimer);
   await submitSignupAttempt();
   showSignupSuccess();
@@ -1134,7 +1416,7 @@ function updateActivationCodeState() {
   });
 
   if (codeProgress) {
-    codeProgress.textContent = `${filledCount}/16 · ${filledCount === 16 ? 'код заполнен' : 'продолжайте вводить'}`;
+    codeProgress.textContent = `${filledCount} / 16 · ${filledCount === 16 ? 'код заполнен' : 'продолжайте ввод'}`;
   }
 }
 
@@ -1220,8 +1502,162 @@ const reviewsPages = [
   ],
 ];
 
+const mobileReviews = [
+  {
+    initials: 'ИА',
+    name: 'Иван А.',
+    role: 'co-founder · fintech',
+    text: 'За 14 дней спринта собрал MVP и закрыл первых трех клиентов. Менторы реально включаются в задачу, а не просто слушают.',
+  },
+  {
+    initials: 'ДП',
+    name: 'Денис П.',
+    role: 'CEO · fintech',
+    text: 'GPT, обученный на нашей CRM, делает 12 часов работы в неделю. Прошли путь от идеи до раунда за 4 месяца - менторы и шаблоны делают все.',
+  },
+  {
+    initials: 'МЮ',
+    name: 'Мария Ю.',
+    role: 'CPO · edtech',
+    text: 'AI-обучение школьников. NPS 78, четыре школы, поток рос на 30% MoM. Без Planka мы бы и customer dev толком не сделали.',
+  },
+  {
+    initials: 'АР',
+    name: 'Антон Р.',
+    role: 'CTO · biotech',
+    text: 'AI-диагностика по анализам. Шаблоны питча и менторинг по грантам сократили путь в два раза. Сейчас пилот в трех клиниках.',
+  },
+  {
+    initials: 'ОК',
+    name: 'Ольга К.',
+    role: 'Founder · HealthTech',
+    text: 'Mental-health трекер для подростков. За 30 дней спринта - 1300 активных, 4 школы партнеров, первый чек от ангела.',
+  },
+  {
+    initials: 'ПД',
+    name: 'Павел Д.',
+    role: 'CEO · Climate',
+    text: 'Платформа учета углеродного следа для SMB. Прошли KYC по грантам ЕС, закрыли раунд через знакомства из чата.',
+  },
+];
+
+const desktopReviews = [
+  {
+    initials: 'ИА',
+    name: 'Иван А.',
+    role: 'co-founder · fintech',
+    text: 'За 14 дней спринта собрал MVP и закрыл первых трех клиентов. Менторы реально включаются в задачу, а не просто слушают.',
+  },
+  {
+    initials: 'ДП',
+    name: 'Денис П.',
+    role: 'CEO · fintech',
+    text: 'GPT, обученный на нашей CRM, делает 12 часов работы в неделю. Прошли путь от идеи до раунда за 4 месяца - менторы и шаблоны делают все.',
+  },
+  {
+    initials: 'АР',
+    name: 'Антон Р.',
+    role: 'CTO · biotech',
+    text: 'AI-диагностика по анализам. Шаблоны питча и менторинг по грантам сократили путь в два раза. Сейчас пилот в трех клиниках.',
+  },
+  {
+    initials: 'МЮ',
+    name: 'Мария Ю.',
+    role: 'CPO · edtech',
+    text: 'AI-обучение школьников. NPS 78, четыре школы, поток рос на 30% MoM. Без Planka мы бы и customer dev толком не сделали.',
+  },
+  {
+    initials: 'ОК',
+    name: 'Ольга К.',
+    role: 'founder · healthtech',
+    text: 'Mental-health трекер для подростков. За 30 дней спринта - 1300 активных, 4 школы партнеров, первый чек от ангела',
+  },
+  {
+    initials: 'ПД',
+    name: 'Павел Д.',
+    role: 'CEO · climate',
+    text: 'Платформа учета углеродного следа для SMB. Прошли KYC по грантам ЕС, закрыли раунд через знакомства из чата',
+  },
+];
+
+function renderReviewDots(count, activeIndex) {
+  if (!reviewsDotsContainer) {
+    return;
+  }
+
+  while (reviewsDotsContainer.children.length < count) {
+    const dot = document.createElement('span');
+    reviewsDotsContainer.appendChild(dot);
+  }
+
+  while (reviewsDotsContainer.children.length > count) {
+    reviewsDotsContainer.lastElementChild?.remove();
+  }
+
+  Array.from(reviewsDotsContainer.children).forEach((dot, index) => {
+    dot.classList.toggle('is-active', index === activeIndex);
+    dot.setAttribute('role', 'button');
+    dot.setAttribute('tabindex', '0');
+    dot.setAttribute('aria-label', `Отзывы ${index + 1}`);
+    dot.setAttribute('aria-current', index === activeIndex ? 'true' : 'false');
+  });
+}
+
 function setReviewsPage(pageIndex) {
   if (!reviewsGrid || !reviewCards.length || !reviewsPages.length) {
+    return;
+  }
+
+  if (mobileReviewsQuery.matches) {
+    const normalizedIndex = (pageIndex + mobileReviews.length) % mobileReviews.length;
+    const data = mobileReviews[normalizedIndex];
+    const card = reviewCards[0];
+
+    reviewCards.forEach((reviewCard, index) => {
+      reviewCard.hidden = index !== 0;
+    });
+
+    if (card && data) {
+      card.hidden = false;
+      card.querySelector('.review-avatar')?.setAttribute('data-initials', data.initials);
+      card.querySelector('.review-person strong').innerHTML = `${data.name}<br /><small>${data.role}</small>`;
+      card.querySelector('p').textContent = data.text;
+    }
+
+    reviewsGrid.classList.remove('is-page-two');
+    reviewsGrid.dataset.mobileReview = String(normalizedIndex);
+    renderReviewDots(mobileReviews.length, normalizedIndex);
+    activeReviewsPage = normalizedIndex;
+    return;
+  }
+
+  if (window.matchMedia('(min-width: 1181px)').matches) {
+    const normalizedIndex = (pageIndex + desktopReviews.length) % desktopReviews.length;
+    const data = desktopReviews[normalizedIndex];
+    const card = reviewCards[0];
+
+    reviewCards.forEach((card, index) => {
+      card.hidden = index !== 0;
+    });
+
+    if (card && data) {
+      const avatar = card.querySelector('.review-avatar');
+      if (avatar) {
+        avatar.setAttribute('data-initials', data.initials);
+        avatar.innerHTML = '';
+      }
+
+      card.hidden = false;
+      card.querySelector('.review-person strong').innerHTML = `${data.name}<br /><small>${data.role}</small>`;
+      card.querySelector('p').textContent = data.text;
+      card.querySelector('footer strong').textContent = '21 ДЕНЬ · СПРИНТ';
+      card.querySelector('footer span').textContent = '';
+    }
+
+    reviewsGrid.classList.remove('is-page-two');
+    reviewsGrid.removeAttribute('data-mobile-review');
+    renderReviewDots(desktopReviews.length, normalizedIndex);
+    activeReviewsPage = normalizedIndex;
     return;
   }
 
@@ -1247,10 +1683,8 @@ function setReviewsPage(pageIndex) {
   });
 
   reviewsGrid.classList.toggle('is-page-two', normalizedIndex === 1);
-  reviewDots.forEach((dot, index) => {
-    dot.classList.toggle('is-active', index === normalizedIndex);
-    dot.setAttribute('aria-current', index === normalizedIndex ? 'true' : 'false');
-  });
+  reviewsGrid.removeAttribute('data-mobile-review');
+  renderReviewDots(reviewsPages.length, normalizedIndex);
   activeReviewsPage = normalizedIndex;
 }
 
@@ -1323,6 +1757,37 @@ reviewDots.forEach((dot, index) => {
     setReviewsPage(index);
   });
 });
+
+reviewsDotsContainer?.addEventListener('click', (event) => {
+  const dot = event.target.closest('span');
+
+  if (!dot || !reviewsDotsContainer.contains(dot)) {
+    return;
+  }
+
+  setReviewsPage(Array.from(reviewsDotsContainer.children).indexOf(dot));
+});
+
+reviewsDotsContainer?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+
+  const dot = event.target.closest('span');
+
+  if (!dot || !reviewsDotsContainer.contains(dot)) {
+    return;
+  }
+
+  event.preventDefault();
+  setReviewsPage(Array.from(reviewsDotsContainer.children).indexOf(dot));
+});
+
+mobileReviewsQuery.addEventListener?.('change', () => {
+  setReviewsPage(0);
+});
+
+setReviewsPage(0);
 
 codeInputs.forEach((input, index) => {
   input.addEventListener('input', () => {
