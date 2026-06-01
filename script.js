@@ -2,7 +2,7 @@ const burgerButton = document.querySelector('.burger-button');
 const menuPanel = document.querySelector('.menu-panel');
 const menuBackdrop = document.querySelector('.menu-backdrop');
 const menuCloseButton = document.querySelector('.menu-close');
-const menuLinks = Array.from(document.querySelectorAll('.menu-link[href], .menu-brand, .menu-access, .menu-status a'));
+const menuLinks = Array.from(document.querySelectorAll('.menu-link[href], .menu-link[data-menu-title], .menu-brand, .menu-access, .menu-status a'));
 const promoTitle = document.querySelector('.menu-promo h2');
 const promoCopy = document.querySelector('.menu-promo p');
 const registrationButton = document.querySelector('.registration-button');
@@ -35,7 +35,9 @@ const questToggles = Array.from(document.querySelectorAll('.quest-toggle'));
 const reviewsGrid = document.querySelector('.reviews-grid');
 const reviewCards = Array.from(document.querySelectorAll('.review-card'));
 const reviewArrows = Array.from(document.querySelectorAll('.reviews-arrow'));
+const reviewsDotsContainer = document.querySelector('.reviews-dots');
 const reviewDots = Array.from(document.querySelectorAll('.reviews-dots span'));
+const mobileReviewsQuery = window.matchMedia('(max-width: 720px)');
 let anchorHighlightTimer;
 let activeSignupStep = 1;
 let maxVisitedSignupStep = 0;
@@ -46,6 +48,35 @@ let signupCreatePromise = null;
 let signupSaveTimer;
 let menuHideTimer;
 let activeReviewsPage = 0;
+
+const pabloCountdown = document.querySelector('[data-pablo-countdown]');
+const pabloWindowStart = pabloCountdown?.dataset.pabloWindowStart ? new Date(pabloCountdown.dataset.pabloWindowStart) : null;
+const pabloDeadline = pabloCountdown?.dataset.pabloDeadline ? new Date(pabloCountdown.dataset.pabloDeadline) : null;
+const pabloCountdownParts = {
+  days: pabloCountdown?.querySelector('[data-pablo-days]'),
+  hours: pabloCountdown?.querySelector('[data-pablo-hours]'),
+  minutes: pabloCountdown?.querySelector('[data-pablo-minutes]'),
+  seconds: pabloCountdown?.querySelector('[data-pablo-seconds]'),
+};
+const pabloCard = document.querySelector('.pablo-card');
+const pabloCardHeaderStatus = pabloCard?.querySelector('.pablo-card__header strong');
+const pabloCardFooterStatus = pabloCard?.querySelector('.pablo-card__footer span:first-child');
+const pabloSlots = Array.from(document.querySelectorAll('.pablo-slot'));
+const communityParticipantNumbers = Array.from(document.querySelectorAll('[data-community-participants]'));
+const communityParticipantText = Array.from(document.querySelectorAll('[data-community-participants-text]'));
+const communityFounderText = Array.from(document.querySelectorAll('[data-community-founders-text]'));
+const communityCardNumbers = Array.from(document.querySelectorAll('[data-community-card-offset]'));
+const COMMUNITY_BASE_PARTICIPANTS = 267;
+const COMMUNITY_BASE_CARD_NUMBER = 268;
+const PABLO_TOTAL_SLOTS = 12;
+const PABLO_SLOTS_PER_WEEK = 3;
+const PABLO_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const PABLO_COUNTDOWN_PARTS = {
+  day: 24 * 60 * 60 * 1000,
+  hour: 60 * 60 * 1000,
+  minute: 60 * 1000,
+};
+let pabloCountdownTimer = null;
 
 if ('scrollRestoration' in history) {
   history.scrollRestoration = 'manual';
@@ -102,25 +133,239 @@ function collectUtmParams() {
 const signupUtm = collectUtmParams();
 const hasTrackingParamsInUrl = Object.keys(getUrlTrackingParams()).length > 0;
 
+const ANALYTICS_SESSION_KEY = 'plankaHubBehaviorSessionId';
+const analyticsLandingPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+let maxScrollPercentTracked = 0;
+let maxScrollYTracked = 0;
+let scrollTrackingTicking = false;
+const sentScrollMilestones = new Set();
+const scrollMilestones = [25, 50, 75, 90, 100];
+
+function createAnalyticsSessionId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getAnalyticsSessionId() {
+  try {
+    const stored = localStorage.getItem(ANALYTICS_SESSION_KEY);
+
+    if (stored) {
+      return stored;
+    }
+
+    const sessionId = createAnalyticsSessionId();
+    localStorage.setItem(ANALYTICS_SESSION_KEY, sessionId);
+    return sessionId;
+  } catch (error) {
+    return createAnalyticsSessionId();
+  }
+}
+
+const analyticsSessionId = getAnalyticsSessionId();
+
+function getScrollAnalytics() {
+  const documentHeight = Math.max(
+    document.body.scrollHeight,
+    document.documentElement.scrollHeight,
+    document.body.offsetHeight,
+    document.documentElement.offsetHeight,
+  );
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+  const maxScrollable = Math.max(1, documentHeight - viewportHeight);
+  const scrollY = Math.max(0, window.scrollY || window.pageYOffset || 0);
+  const percent = Math.min(100, Math.round((scrollY / maxScrollable) * 1000) / 10);
+
+  maxScrollPercentTracked = Math.max(maxScrollPercentTracked, percent);
+  maxScrollYTracked = Math.max(maxScrollYTracked, Math.round(scrollY));
+
+  return {
+    y: Math.round(scrollY),
+    maxY: maxScrollYTracked,
+    percent: maxScrollPercentTracked,
+    pageHeight: documentHeight,
+  };
+}
+
+function buildAnalyticsPayload(type, name, details = {}) {
+  return {
+    sessionId: analyticsSessionId,
+    type,
+    name,
+    label: details.label || name,
+    text: details.text || '',
+    href: details.href || '',
+    pagePath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    landingPath: analyticsLandingPath,
+    viewport: {
+      width: window.innerWidth || document.documentElement.clientWidth || 0,
+      height: window.innerHeight || document.documentElement.clientHeight || 0,
+    },
+    scroll: getScrollAnalytics(),
+    utm: signupUtm,
+    metadata: details.metadata || {},
+  };
+}
+
+function sendAnalyticsEvent(type, name, details = {}, useBeacon = false) {
+  const payload = buildAnalyticsPayload(type, name, details);
+  const body = JSON.stringify(payload);
+
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/analytics/events', new Blob([body], { type: 'application/json' }));
+    return;
+  }
+
+  fetch('/api/analytics/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+const analyticsClickTargets = [
+  ['header.burger', '.burger-button', 'Header · burger menu'],
+  ['header.logo', '.brand', 'Header · logo'],
+  ['header.login', '.login-link, .registration-button', 'Header · вход'],
+  ['hero.free', '.hero-cta', 'Hero · Получить бесплатно'],
+  ['founders.join', '.founders-button--dark', 'Секция 2 · Стать участником'],
+  ['bloggers.arrow', '.bloggers-arrow', 'Секция 3 · стрелка блогеров'],
+  ['report.join', '.report-button--primary', 'Секция 5 · Стать участником'],
+  ['pablo.apply', '.pablo-button, .pablo-link--telegram', 'Секция 7 · Подать заявку в Telegram'],
+  ['pablo.site', '.pablo-link--site', 'Секция 7 · Сайт HIT Venture'],
+  ['reviews.arrow', '.reviews-arrow', 'Секция 8 · стрелка отзывов'],
+  ['telegram.subscribe', '.telegram-button', 'Секция 9 · Подписаться на канал'],
+  ['faq.question', '.quest-card', 'Секция 11 · вопрос'],
+  ['footer.anchor', '.site-footer a[href^="#"]', 'Футер · якорная ссылка'],
+];
+
+function resolveAnalyticsClick(target) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  for (const [name, selector, fallbackLabel] of analyticsClickTargets) {
+    const element = target.closest(selector);
+
+    if (!element) {
+      continue;
+    }
+
+    if (name === 'faq.question' && !questList?.contains(element)) {
+      continue;
+    }
+
+    const label = element.getAttribute('aria-label')
+      || element.querySelector('h3, strong, span')?.textContent
+      || element.textContent
+      || fallbackLabel;
+    const href = element instanceof HTMLAnchorElement ? element.href : '';
+    const index = name === 'faq.question'
+      ? Array.from(questList?.querySelectorAll('.quest-card') || []).indexOf(element) + 1
+      : undefined;
+
+    return {
+      name,
+      label: fallbackLabel,
+      text: label.replace(/\s+/g, ' ').trim().slice(0, 240),
+      href,
+      metadata: {
+        index,
+        className: element.className || '',
+      },
+    };
+  }
+
+  return null;
+}
+
+document.addEventListener('click', (event) => {
+  const clickData = resolveAnalyticsClick(event.target);
+
+  if (!clickData) {
+    return;
+  }
+
+  sendAnalyticsEvent('click', clickData.name, clickData);
+}, { capture: true });
+
+function trackScrollDepth() {
+  const scroll = getScrollAnalytics();
+
+  scrollMilestones.forEach((milestone) => {
+    if (scroll.percent < milestone || sentScrollMilestones.has(milestone)) {
+      return;
+    }
+
+    sentScrollMilestones.add(milestone);
+    sendAnalyticsEvent('scroll', `scroll.${milestone}`, {
+      label: `Scroll ${milestone}%`,
+      metadata: { milestone },
+    });
+  });
+}
+
+function requestScrollTracking() {
+  if (scrollTrackingTicking) {
+    return;
+  }
+
+  scrollTrackingTicking = true;
+  requestAnimationFrame(() => {
+    trackScrollDepth();
+    scrollTrackingTicking = false;
+  });
+}
+
+window.addEventListener('scroll', requestScrollTracking, { passive: true });
+window.addEventListener('resize', requestScrollTracking);
+window.addEventListener('beforeunload', () => {
+  sendAnalyticsEvent('scroll', 'scroll.final', { label: 'Final scroll depth' }, true);
+});
+requestScrollTracking();
+
 function getStoredSignupAttemptId() {
-  const value = Number(sessionStorage.getItem(UTM_ATTEMPT_STORAGE_KEY));
-  return Number.isInteger(value) && value > 0 ? value : null;
+  try {
+    const value = Number(sessionStorage.getItem(UTM_ATTEMPT_STORAGE_KEY));
+    return Number.isInteger(value) && value > 0 ? value : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 function storeSignupAttemptId(attemptId) {
-  if (attemptId) {
-    sessionStorage.setItem(UTM_ATTEMPT_STORAGE_KEY, String(attemptId));
+  try {
+    if (attemptId) {
+      sessionStorage.setItem(UTM_ATTEMPT_STORAGE_KEY, String(attemptId));
+    }
+  } catch (error) {
+    // Storage can be blocked in embedded previews; the server-side attempt still exists.
   }
 }
 
 function clearStoredSignupAttemptId() {
-  sessionStorage.removeItem(UTM_ATTEMPT_STORAGE_KEY);
+  try {
+    sessionStorage.removeItem(UTM_ATTEMPT_STORAGE_KEY);
+  } catch (error) {
+    // Nothing to clear when storage is unavailable.
+  }
 }
 
 const storedSignupAttemptId = getStoredSignupAttemptId();
 
-if (storedSignupAttemptId) {
-  signupAttemptId = storedSignupAttemptId;
+function resetSignupAttemptState({ clearStored = true } = {}) {
+  clearTimeout(signupSaveTimer);
+  signupAttemptId = null;
+  signupAttemptStatus = 'in_progress';
+  signupCreatePromise = null;
+
+  if (clearStored) {
+    clearStoredSignupAttemptId();
+  }
 }
 
 function initScrollReveals() {
@@ -281,6 +526,16 @@ function toggleMenu() {
   setMenuVisibility(!isOpen);
 }
 
+function setPromoTitle(title) {
+  if (!promoTitle) {
+    return;
+  }
+
+  const isFaqTitle = title === 'Ответы на частые вопросы';
+  promoTitle.classList.toggle('menu-promo-title--faq', isFaqTitle);
+  promoTitle.innerHTML = isFaqTitle ? 'Ответы на<br />частые вопросы' : title.replace(/Pre-Seed/g, 'Pre-<br />Seed');
+}
+
 function setActiveMenuLink(link) {
   if (!link?.classList.contains('menu-link')) {
     return;
@@ -293,7 +548,7 @@ function setActiveMenuLink(link) {
   link.classList.add('menu-link--active');
 
   if (promoTitle && link.dataset.menuTitle) {
-    promoTitle.innerHTML = link.dataset.menuTitle.replace(/Pre-Seed/g, 'Pre-<br />Seed');
+    setPromoTitle(link.dataset.menuTitle);
   }
 
   if (promoCopy && link.dataset.menuCopy) {
@@ -463,9 +718,14 @@ async function startSignupAttempt(options = {}) {
     currentStep = getTrackedSignupStep(),
     fields = collectSignupFields(),
     syncVisitedStep = true,
+    forceNew = false,
   } = options;
 
-  if (signupAttemptStatus !== 'submitted') {
+  if (forceNew) {
+    resetSignupAttemptState();
+  }
+
+  if (!forceNew && signupAttemptStatus !== 'submitted') {
     if (signupCreatePromise) {
       return signupCreatePromise;
     }
@@ -522,12 +782,14 @@ function hasActiveSignupAttempt() {
   return signupAttemptStatus !== 'submitted' && Boolean(signupAttemptId || signupCreatePromise);
 }
 
-function openSignupFlow() {
-  const shouldCreateAttempt = !hasActiveSignupAttempt();
+function openSignupFlow(options = {}) {
+  const { forceNewAttempt = !document.body.classList.contains('registration-mode') } = options;
+  const shouldCreateAttempt = forceNewAttempt || !hasActiveSignupAttempt();
 
   hideSignupSuccess();
 
   if (shouldCreateAttempt) {
+    resetSignupAttemptState();
     activeSignupStep = 1;
     maxVisitedSignupStep = 1;
   } else {
@@ -537,7 +799,7 @@ function openSignupFlow() {
   setRegistrationMode(true);
 
   if (shouldCreateAttempt) {
-    startSignupAttempt();
+    startSignupAttempt({ forceNew: true });
     return;
   }
 
@@ -546,7 +808,7 @@ function openSignupFlow() {
 
 async function persistSignupAttempt(status = 'in_progress') {
   if (!signupRoot) {
-    return;
+    return null;
   }
 
   if (!signupAttemptId && signupCreatePromise) {
@@ -554,22 +816,52 @@ async function persistSignupAttempt(status = 'in_progress') {
   }
 
   if (!signupAttemptId) {
-    return;
+    return null;
   }
 
   const nextStatus = signupAttemptStatus === 'submitted' ? 'submitted' : status;
 
-  await fetch(`/api/registration-attempts/${signupAttemptId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      currentStep: getTrackedSignupStep(),
-      status: nextStatus,
-      fields: collectSignupFields(),
-    }),
-  }).catch((error) => {
-    console.warn('РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ РїРѕРїС‹С‚РєСѓ СЂРµРіРёСЃС‚СЂР°С†РёРё', error);
-  });
+  try {
+    const response = await fetch(`/api/registration-attempts/${signupAttemptId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currentStep: getTrackedSignupStep(),
+        status: nextStatus,
+        fields: collectSignupFields(),
+      }),
+    });
+
+    if (response.status === 404) {
+      clearStoredSignupAttemptId();
+      signupAttemptId = null;
+      signupCreatePromise = null;
+
+      if (signupFlowOpened && signupAttemptStatus !== 'submitted') {
+        await startSignupAttempt({
+          currentStep: getTrackedSignupStep(),
+          fields: collectSignupFields(),
+          syncVisitedStep: false,
+        });
+        return persistSignupAttempt(status);
+      }
+    }
+
+    if (response.ok) {
+      const attempt = await response.json();
+
+      if (attempt.communityCounter) {
+        renderCommunityCounter(attempt.communityCounter);
+      } else if (toFiniteNumber(attempt.currentStep, 0) >= 2) {
+        await refreshCommunityCounter();
+      }
+
+      return attempt;
+    }
+  } catch (error) {
+    console.warn('Не удалось сохранить попытку регистрации', error);
+  }
+  return null;
 }
 
 function scheduleSignupSave() {
@@ -588,15 +880,27 @@ async function submitSignupAttempt() {
     return;
   }
 
-  await fetch(`/api/registration-attempts/${signupAttemptId}/submit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fields: collectSignupFields(),
-    }),
-  }).catch((error) => {
-    console.warn('РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ РїРѕРїС‹С‚РєСѓ СЂРµРіРёСЃС‚СЂР°С†РёРё', error);
-  });
+  try {
+    const response = await fetch(`/api/registration-attempts/${signupAttemptId}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: collectSignupFields(),
+      }),
+    });
+
+    if (response.ok) {
+      const attempt = await response.json();
+
+      if (attempt.communityCounter) {
+        renderCommunityCounter(attempt.communityCounter);
+      } else {
+        await refreshCommunityCounter();
+      }
+    }
+  } catch (error) {
+    console.warn('Не удалось отправить попытку регистрации', error);
+  }
 
   signupAttemptStatus = 'submitted';
 }
@@ -645,6 +949,7 @@ function setRegistrationMode(isOpen, shouldUpdateHistory = true) {
 
   if (!isOpen) {
     hideSignupSuccess();
+    refreshCommunityCounter();
     requestAnimationFrame(restoreMainPageRevealState);
   }
 
@@ -831,19 +1136,167 @@ function scrollToAnchor(anchor) {
   return true;
 }
 
+function toFiniteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function formatCommunityCardNumber(number) {
+  return `00 · ${number}`;
+}
+
+function renderCommunityCounter(counter = {}) {
+  const step2Count = Math.max(0, toFiniteNumber(counter.step2Count, 0));
+  const participants = Math.max(COMMUNITY_BASE_PARTICIPANTS, toFiniteNumber(counter.participants, COMMUNITY_BASE_PARTICIPANTS + step2Count));
+  const cardNumber = Math.max(COMMUNITY_BASE_CARD_NUMBER, toFiniteNumber(counter.cardNumber, COMMUNITY_BASE_CARD_NUMBER + step2Count));
+
+  communityParticipantNumbers.forEach((item) => {
+    item.textContent = String(participants);
+  });
+
+  communityParticipantText.forEach((item) => {
+    item.textContent = `${participants} участников`;
+  });
+
+  communityFounderText.forEach((item) => {
+    item.textContent = `Нас ${participants} фаундеров уже внутри`;
+  });
+
+  communityCardNumbers.forEach((item) => {
+    const offset = toFiniteNumber(item.dataset.communityCardOffset, 0);
+    item.textContent = formatCommunityCardNumber(cardNumber + offset);
+  });
+}
+
+async function refreshCommunityCounter() {
+  try {
+    const response = await fetch('/api/community-counter', { cache: 'no-store' });
+
+    if (!response.ok) {
+      throw new Error('Community counter request failed');
+    }
+
+    renderCommunityCounter(await response.json());
+  } catch (error) {
+    renderCommunityCounter();
+  }
+}
+
+function formatPabloCountdownPart(value) {
+  return String(Math.max(0, value)).padStart(2, '0');
+}
+
+function getPabloCohortState(now = new Date()) {
+  if (!pabloDeadline || Number.isNaN(pabloDeadline.getTime())) {
+    return {
+      remaining: PABLO_TOTAL_SLOTS,
+      occupied: 0,
+      isClosed: false,
+    };
+  }
+
+  const msLeft = Math.max(0, pabloDeadline.getTime() - now.getTime());
+  const windowStart = pabloWindowStart && !Number.isNaN(pabloWindowStart.getTime())
+    ? pabloWindowStart.getTime()
+    : pabloDeadline.getTime() - 4 * PABLO_WEEK_MS;
+  const elapsedMs = Math.max(0, now.getTime() - windowStart);
+  const elapsedWeeks = Math.min(4, Math.floor(elapsedMs / PABLO_WEEK_MS));
+  const occupied = msLeft <= 0 ? PABLO_TOTAL_SLOTS : Math.min(PABLO_TOTAL_SLOTS, elapsedWeeks * PABLO_SLOTS_PER_WEEK);
+
+  return {
+    remaining: PABLO_TOTAL_SLOTS - occupied,
+    occupied,
+    isClosed: msLeft <= 0,
+  };
+}
+
+function updatePabloSlots(now = new Date()) {
+  if (!pabloSlots.length) {
+    return;
+  }
+
+  const { remaining, occupied } = getPabloCohortState(now);
+
+  pabloSlots.forEach((slot, index) => {
+    slot.classList.toggle('is-filled', index < occupied);
+  });
+
+  if (pabloCardHeaderStatus) {
+    pabloCardHeaderStatus.textContent = `Открыто ${remaining} · занято ${occupied}`;
+  }
+
+  if (pabloCardFooterStatus) {
+    pabloCardFooterStatus.innerHTML = `Осталось <b>${remaining}</b> · занято ${occupied}`;
+  }
+}
+
+function updatePabloCountdown() {
+  if (!pabloCountdown || !pabloDeadline || Number.isNaN(pabloDeadline.getTime())) {
+    updatePabloSlots();
+    return;
+  }
+
+  const now = new Date();
+  const msLeft = Math.max(0, pabloDeadline.getTime() - now.getTime());
+  const days = Math.floor(msLeft / PABLO_COUNTDOWN_PARTS.day);
+  const hours = Math.floor((msLeft % PABLO_COUNTDOWN_PARTS.day) / PABLO_COUNTDOWN_PARTS.hour);
+  const minutes = Math.floor((msLeft % PABLO_COUNTDOWN_PARTS.hour) / PABLO_COUNTDOWN_PARTS.minute);
+  const seconds = Math.floor((msLeft % PABLO_COUNTDOWN_PARTS.minute) / 1000);
+
+  if (pabloCountdownParts.days) {
+    pabloCountdownParts.days.textContent = formatPabloCountdownPart(days);
+  }
+
+  if (pabloCountdownParts.hours) {
+    pabloCountdownParts.hours.textContent = formatPabloCountdownPart(hours);
+  }
+
+  if (pabloCountdownParts.minutes) {
+    pabloCountdownParts.minutes.textContent = formatPabloCountdownPart(minutes);
+  }
+
+  if (pabloCountdownParts.seconds) {
+    pabloCountdownParts.seconds.textContent = formatPabloCountdownPart(seconds);
+  }
+
+  updatePabloSlots(now);
+  pabloCard?.classList.toggle('is-countdown-ended', msLeft <= 0);
+
+  if (msLeft <= 0 && pabloCountdownTimer) {
+    window.clearInterval(pabloCountdownTimer);
+    pabloCountdownTimer = null;
+  }
+}
+
 function getQuestLayoutConfig() {
   if (window.matchMedia('(max-width: 720px)').matches) {
     return {
-      rows: [[0], [1], [2], [3], [4], [6], [5]],
+      rows: [[0], [1], [2], [3], [4], [5]],
       columns: [0],
-      baseHeights: [85.88, 91.12, 91.12, 81.44, 81.44, 82, 81.44],
-      featuredOpenHeight: 104,
-      openHeight: 112,
-      afterFeaturedGap: 7,
-      rowGap: 7,
-      baseListHeight: 636.44,
-      basePanelHeight: 496,
-      baseSectionHeight: 796,
+      baseHeights: [56, 72, 72, 72, 72, 56],
+      featuredOpenHeight: 155,
+      openHeight: 188,
+      afterFeaturedGap: 10.39,
+      rowGap: 10.39,
+      baseListHeight: 485,
+      basePanelHeight: 548,
+      baseSectionHeight: 608,
+    };
+  }
+
+  if (window.matchMedia('(min-width: 721px) and (max-width: 900px)').matches) {
+    return {
+      rows: [[0], [1, 2], [3, 4], [5, 6]],
+      columns: [0, 499],
+      baseHeights: [171.75, 161, 161, 161, 161, 162, 162],
+      featuredOpenHeight: 188,
+      openHeight: 200,
+      afterFeaturedGap: 14,
+      rowGap: 35.25,
+      baseListHeight: 740.25,
+      basePanelHeight: 992,
+      baseSectionHeight: 700,
+      sectionScale: 0.66,
     };
   }
 
@@ -900,12 +1353,38 @@ function updateQuestLayout() {
   });
 
   const heightDelta = Math.max(0, listHeight - config.baseListHeight);
+  const sectionDelta = heightDelta * (config.sectionScale || 1);
   questList.style.height = `${listHeight}px`;
   questPanel.style.height = `${config.basePanelHeight + heightDelta}px`;
-  questSection.style.height = `${config.baseSectionHeight + heightDelta}px`;
+  questSection.style.height = `${config.baseSectionHeight + sectionDelta}px`;
 }
 
 function setQuestCardOpen(card, toggle, isOpen) {
+  const isMobileQuest = window.matchMedia('(max-width: 720px)').matches;
+  const isDesktopQuest = window.matchMedia('(min-width: 1181px)').matches;
+  const isExclusiveQuest = isMobileQuest || isDesktopQuest;
+
+  if (isExclusiveQuest && isOpen) {
+    questToggles.forEach((item) => {
+      const itemCard = item.closest('.quest-card');
+
+      if (!itemCard || itemCard === card) {
+        return;
+      }
+
+      itemCard.classList.remove('is-open');
+      item.setAttribute('aria-expanded', 'false');
+      const itemLabel = item.querySelector('span');
+      if (itemLabel) {
+        itemLabel.textContent = 'Подробно';
+      }
+    });
+  }
+
+  if (isExclusiveQuest && !isOpen) {
+    isOpen = true;
+  }
+
   card.classList.toggle('is-open', isOpen);
   toggle.setAttribute('aria-expanded', String(isOpen));
 
@@ -918,7 +1397,8 @@ function setQuestCardOpen(card, toggle, isOpen) {
 }
 
 questToggles.forEach((toggle) => {
-  toggle.addEventListener('click', () => {
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
     const card = toggle.closest('.quest-card');
 
     if (!card) {
@@ -930,10 +1410,57 @@ questToggles.forEach((toggle) => {
   });
 });
 
+questList?.addEventListener('click', (event) => {
+  if (!window.matchMedia('(max-width: 720px)').matches && !window.matchMedia('(min-width: 1181px)').matches) {
+    return;
+  }
+
+  const card = event.target.closest('.quest-card');
+
+  if (!card || !questList.contains(card) || Array.from(questList.querySelectorAll('.quest-card')).indexOf(card) > 4) {
+    return;
+  }
+
+  const toggle = card.querySelector('.quest-toggle');
+
+  if (!toggle) {
+    return;
+  }
+
+  setQuestCardOpen(card, toggle, true);
+});
+
+function syncMobileQuestState() {
+  const isExclusiveQuest = window.matchMedia('(max-width: 720px)').matches || window.matchMedia('(min-width: 1181px)').matches;
+
+  if (!isExclusiveQuest || !questList) {
+    updateQuestLayout();
+    return;
+  }
+
+  const cards = Array.from(questList.querySelectorAll('.quest-card')).slice(0, 5);
+  const openCard = cards.find((card) => card.classList.contains('is-open')) || cards[0];
+
+  cards.forEach((card) => {
+    const toggle = card.querySelector('.quest-toggle');
+    const isOpen = card === openCard;
+    card.classList.toggle('is-open', isOpen);
+    toggle?.setAttribute('aria-expanded', String(isOpen));
+    const label = toggle?.querySelector('span');
+    if (label) {
+      label.textContent = isOpen ? 'Свернуть' : 'Подробно';
+    }
+  });
+
+  updateQuestLayout();
+}
+
 window.addEventListener('resize', updateQuestLayout);
+window.addEventListener('resize', syncMobileQuestState);
+syncMobileQuestState();
 
 registrationButton?.addEventListener('click', () => {
-  openSignupFlow();
+  setLoginMode(true);
 });
 
 signupRoot?.addEventListener('click', (event) => {
@@ -965,8 +1492,13 @@ signupRoot?.addEventListener('click', (event) => {
       return;
     }
 
-    showSignupStep(activeSignupStep + 1);
-    persistSignupAttempt();
+    const nextStep = activeSignupStep + 1;
+    showSignupStep(nextStep);
+    persistSignupAttempt().then(() => {
+      if (nextStep >= 2) {
+        refreshCommunityCounter();
+      }
+    });
     return;
   }
 
@@ -988,6 +1520,18 @@ signupRoot?.addEventListener('change', () => {
 
 signupRoot?.querySelector('form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
+
+  if (!isSignupStepComplete(3)) {
+    const nextField = !isValidSignupEmail()
+      ? getSignupField('email')
+      : !getSignupFieldValue('contact')
+        ? getSignupField('contact')
+        : getSignupField('privacy');
+
+    nextField?.focus({ preventScroll: true });
+    return;
+  }
+
   clearTimeout(signupSaveTimer);
   await submitSignupAttempt();
   showSignupSuccess();
@@ -1011,6 +1555,14 @@ menuCloseButton?.addEventListener('click', closeMenu);
 menuBackdrop?.addEventListener('click', closeMenu);
 
 menuPanel?.addEventListener('click', (event) => {
+  const inactiveMenuItem = event.target instanceof Element ? event.target.closest('.menu-link[data-menu-title]:not(a)') : null;
+
+  if (inactiveMenuItem && menuPanel.contains(inactiveMenuItem)) {
+    event.preventDefault();
+    setActiveMenuLink(inactiveMenuItem);
+    return;
+  }
+
   const link = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
 
   if (!(link instanceof HTMLAnchorElement)) {
@@ -1068,7 +1620,7 @@ function syncRouteFromHash() {
   const hash = window.location.hash;
 
   if (hash === '#registration') {
-    setRegistrationMode(true, false);
+    openSignupFlow({ forceNewAttempt: !hasActiveSignupAttempt() });
     return;
   }
 
@@ -1097,7 +1649,7 @@ if (window.location.hash === '#registration') {
   activeSignupStep = 1;
   maxVisitedSignupStep = 1;
   setRegistrationMode(true, false);
-  startSignupAttempt();
+  startSignupAttempt({ forceNew: true });
 }
 
 if (window.location.hash === '#login') {
@@ -1117,7 +1669,7 @@ function updateActivationCodeState() {
   });
 
   if (codeProgress) {
-    codeProgress.textContent = `${filledCount}/16 · ${filledCount === 16 ? 'код заполнен' : 'продолжайте вводить'}`;
+    codeProgress.textContent = `${filledCount} / 16 · ${filledCount === 16 ? 'код заполнен' : 'продолжайте ввод'}`;
   }
 }
 
@@ -1203,8 +1755,164 @@ const reviewsPages = [
   ],
 ];
 
+const mobileReviews = [
+  {
+    initials: 'ИА',
+    name: 'Иван А.',
+    role: 'co-founder · fintech',
+    text: 'За 14 дней спринта собрал MVP и закрыл первых трех клиентов. Менторы реально включаются в задачу, а не просто слушают.',
+  },
+  {
+    initials: 'ДП',
+    name: 'Денис П.',
+    role: 'CEO · fintech',
+    text: 'GPT, обученный на нашей CRM, делает 12 часов работы в неделю. Прошли путь от идеи до раунда за 4 месяца - менторы и шаблоны делают все.',
+  },
+  {
+    initials: 'МЮ',
+    name: 'Мария Ю.',
+    role: 'CPO · edtech',
+    text: 'AI-обучение школьников. NPS 78, четыре школы, поток рос на 30% MoM. Без Planka мы бы и customer dev толком не сделали.',
+  },
+  {
+    initials: 'АР',
+    name: 'Антон Р.',
+    role: 'CTO · biotech',
+    text: 'AI-диагностика по анализам. Шаблоны питча и менторинг по грантам сократили путь в два раза. Сейчас пилот в трех клиниках.',
+  },
+  {
+    initials: 'ОК',
+    name: 'Ольга К.',
+    role: 'Founder · HealthTech',
+    text: 'Mental-health трекер для подростков. За 30 дней спринта - 1300 активных, 4 школы партнеров, первый чек от ангела.',
+  },
+  {
+    initials: 'ПД',
+    name: 'Павел Д.',
+    role: 'CEO · Climate',
+    text: 'Платформа учета углеродного следа для SMB. Прошли KYC по грантам ЕС, закрыли раунд через знакомства из чата.',
+  },
+];
+
+const desktopReviews = [
+  {
+    initials: 'ИА',
+    name: 'Иван А.',
+    role: 'co-founder · fintech',
+    text: 'За 14 дней спринта собрал MVP и закрыл первых трех клиентов. Менторы реально включаются в задачу, а не просто слушают.',
+  },
+  {
+    initials: 'ДП',
+    name: 'Денис П.',
+    role: 'CEO · fintech',
+    text: 'GPT, обученный на нашей CRM, делает 12 часов работы в неделю. Прошли путь от идеи до раунда за 4 месяца - менторы и шаблоны делают все.',
+  },
+  {
+    initials: 'АР',
+    name: 'Антон Р.',
+    role: 'CTO · biotech',
+    text: 'AI-диагностика по анализам. Шаблоны питча и менторинг по грантам сократили путь в два раза. Сейчас пилот в трех клиниках.',
+  },
+  {
+    initials: 'МЮ',
+    name: 'Мария Ю.',
+    role: 'CPO · edtech',
+    text: 'AI-обучение школьников. NPS 78, четыре школы, поток рос на 30% MoM. Без Planka мы бы и customer dev толком не сделали.',
+  },
+  {
+    initials: 'ОК',
+    name: 'Ольга К.',
+    role: 'founder · healthtech',
+    text: 'Mental-health трекер для подростков. За 30 дней спринта - 1300 активных, 4 школы партнеров, первый чек от ангела',
+  },
+  {
+    initials: 'ПД',
+    name: 'Павел Д.',
+    role: 'CEO · climate',
+    text: 'Платформа учета углеродного следа для SMB. Прошли KYC по грантам ЕС, закрыли раунд через знакомства из чата',
+  },
+];
+
+function renderReviewDots(count, activeIndex) {
+  if (!reviewsDotsContainer) {
+    return;
+  }
+
+  while (reviewsDotsContainer.children.length < count) {
+    const dot = document.createElement('span');
+    reviewsDotsContainer.appendChild(dot);
+  }
+
+  while (reviewsDotsContainer.children.length > count) {
+    reviewsDotsContainer.lastElementChild?.remove();
+  }
+
+  Array.from(reviewsDotsContainer.children).forEach((dot, index) => {
+    dot.classList.toggle('is-active', index === activeIndex);
+    dot.setAttribute('role', 'button');
+    dot.setAttribute('tabindex', '0');
+    dot.setAttribute('aria-label', `Отзывы ${index + 1}`);
+    dot.setAttribute('aria-current', index === activeIndex ? 'true' : 'false');
+  });
+}
+
 function setReviewsPage(pageIndex) {
   if (!reviewsGrid || !reviewCards.length || !reviewsPages.length) {
+    return;
+  }
+
+  if (mobileReviewsQuery.matches) {
+    const normalizedIndex = (pageIndex + mobileReviews.length) % mobileReviews.length;
+    const data = mobileReviews[normalizedIndex];
+    const card = reviewCards[0];
+
+    reviewCards.forEach((reviewCard, index) => {
+      reviewCard.hidden = index !== 0;
+    });
+
+    if (card && data) {
+      card.hidden = false;
+      card.querySelector('.review-avatar')?.setAttribute('data-initials', data.initials);
+      card.querySelector('.review-person strong').innerHTML = `${data.name}<br /><small>${data.role}</small>`;
+      card.querySelector('p').textContent = data.text;
+    }
+
+    reviewsGrid.classList.remove('is-page-two');
+    reviewsGrid.dataset.activeReview = String(normalizedIndex);
+    reviewsGrid.dataset.mobileReview = String(normalizedIndex);
+    renderReviewDots(mobileReviews.length, normalizedIndex);
+    activeReviewsPage = normalizedIndex;
+    return;
+  }
+
+  if (window.matchMedia('(min-width: 1181px)').matches) {
+    const normalizedIndex = (pageIndex + desktopReviews.length) % desktopReviews.length;
+    const data = desktopReviews[normalizedIndex];
+    const card = reviewCards[0];
+
+    reviewCards.forEach((card, index) => {
+      card.hidden = index !== 0;
+    });
+
+    if (card && data) {
+      const avatar = card.querySelector('.review-avatar');
+      if (avatar) {
+        avatar.setAttribute('data-initials', data.initials);
+        avatar.innerHTML = '';
+      }
+
+      card.hidden = false;
+      card.querySelector('.review-person strong').innerHTML = `${data.name}<br /><small>${data.role}</small>`;
+      card.querySelector('p').textContent = data.text;
+      card.querySelector('footer strong').textContent = '21 ДЕНЬ · СПРИНТ';
+      card.querySelector('footer span').textContent = '';
+    }
+
+    reviewsGrid.classList.remove('is-page-two');
+    reviewsGrid.dataset.activeReview = String(normalizedIndex);
+    reviewsGrid.removeAttribute('data-mobile-review');
+    renderReviewDots(desktopReviews.length, normalizedIndex);
+    activeReviewsPage = normalizedIndex;
     return;
   }
 
@@ -1230,10 +1938,9 @@ function setReviewsPage(pageIndex) {
   });
 
   reviewsGrid.classList.toggle('is-page-two', normalizedIndex === 1);
-  reviewDots.forEach((dot, index) => {
-    dot.classList.toggle('is-active', index === normalizedIndex);
-    dot.setAttribute('aria-current', index === normalizedIndex ? 'true' : 'false');
-  });
+  reviewsGrid.dataset.activeReview = String(normalizedIndex);
+  reviewsGrid.removeAttribute('data-mobile-review');
+  renderReviewDots(reviewsPages.length, normalizedIndex);
   activeReviewsPage = normalizedIndex;
 }
 
@@ -1307,6 +2014,37 @@ reviewDots.forEach((dot, index) => {
   });
 });
 
+reviewsDotsContainer?.addEventListener('click', (event) => {
+  const dot = event.target.closest('span');
+
+  if (!dot || !reviewsDotsContainer.contains(dot)) {
+    return;
+  }
+
+  setReviewsPage(Array.from(reviewsDotsContainer.children).indexOf(dot));
+});
+
+reviewsDotsContainer?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+
+  const dot = event.target.closest('span');
+
+  if (!dot || !reviewsDotsContainer.contains(dot)) {
+    return;
+  }
+
+  event.preventDefault();
+  setReviewsPage(Array.from(reviewsDotsContainer.children).indexOf(dot));
+});
+
+mobileReviewsQuery.addEventListener?.('change', () => {
+  setReviewsPage(0);
+});
+
+setReviewsPage(0);
+
 codeInputs.forEach((input, index) => {
   input.addEventListener('input', () => {
     input.value = input.value.slice(-1).toUpperCase();
@@ -1329,4 +2067,10 @@ updateActivationCodeState();
 trackUtmLandingVisit();
 setReviewsPage(0);
 initScrollReveals();
+renderCommunityCounter();
+refreshCommunityCounter();
+updatePabloCountdown();
+if (pabloCountdown && !pabloCard?.classList.contains('is-countdown-ended')) {
+  pabloCountdownTimer = window.setInterval(updatePabloCountdown, 1000);
+}
 updateQuestLayout();
